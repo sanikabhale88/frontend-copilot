@@ -8,5 +8,15 @@
       "root": "backend",
       "framework": "express"
     }
-  }
+  },
+  "routing": [
+    {
+      "src": "/api/(.*)",
+      "dest": "backend"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "frontend"
+    }
+  ]
 }

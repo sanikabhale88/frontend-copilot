@@ -56,7 +56,7 @@ export default function Home() {
     setInstruction(""); // clear old refine text
 
     const response = await axios.post(
-      "http://localhost:5000/api/generate",
+      "/api/generate",
       {
         prompt,
       }
@@ -78,7 +78,7 @@ const handleRefine = async () => {
     setError("");
 
     const response = await axios.post(
-      "http://localhost:5000/api/generate",
+      "/api/generate",
       {
         existingCode: result,
         instruction,
