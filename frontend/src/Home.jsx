@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import axios from "axios";
+const API = import.meta.env.VITE_API_URL;
 
 export default function Home() {
   const [prompt, setPrompt] = useState("");
@@ -55,12 +56,9 @@ export default function Home() {
     setError("");
     setInstruction(""); // clear old refine text
 
-    const response = await axios.post(
-      "/api/generate",
-      {
-        prompt,
-      }
-    );
+    const response = await axios.post(`${API}/api/generate`, {
+  prompt,
+});
 
     setResult(response.data.result);
   } catch {
@@ -77,13 +75,10 @@ const handleRefine = async () => {
     setLoading(true);
     setError("");
 
-    const response = await axios.post(
-      "/api/generate",
-      {
-        existingCode: result,
-        instruction,
-      }
-    );
+   const response = await axios.post(`${API}/api/generate`, {
+  existingCode: result,
+  instruction,
+});
 
     setResult(response.data.result);
     setInstruction("");
