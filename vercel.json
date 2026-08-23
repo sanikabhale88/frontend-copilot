@@ -6,7 +6,7 @@
     },
     "backend": {
       "root": "backend",
-      "framework": "other"
+      "framework": "express"
     }
   }
 }
