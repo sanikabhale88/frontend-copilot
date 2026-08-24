@@ -7,25 +7,22 @@ dotenv.config();
 
 const app = express();
 
-const PORT = 5000;
-
 // --------------------
-// CORS
+// Middleware
 // --------------------
 
-const corsOptions = {
-  origin: true,
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"],
-};
-
-app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
+app.use(
+  cors({
+    origin: true,
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type"],
+  })
+);
 
 app.use(express.json());
 
 // --------------------
-// Gemini
+// Gemini AI
 // --------------------
 
 const ai = new GoogleGenAI({
@@ -54,14 +51,14 @@ app.post("/api/generate", async (req, res) => {
     } = req.body;
 
     const isRefine =
-      existingCode?.trim() &&
-      instruction?.trim();
+      Boolean(existingCode?.trim()) &&
+      Boolean(instruction?.trim());
 
     let finalPrompt = "";
 
-    // ====================
-    // REFINE EXISTING CODE
-    // ====================
+    // ==========================
+    // REFINE EXISTING COMPONENT
+    // ==========================
 
     if (isRefine) {
       finalPrompt = `
@@ -73,34 +70,37 @@ The user wants a specific change to the existing component.
 
 STRICT RULES:
 
-1. DO NOT create a new component.
-2. DO NOT redesign the UI.
-3. DO NOT change the overall layout.
-4. DO NOT remove existing functionality.
-5. DO NOT add unrelated features.
-6. Keep the SAME component name.
-7. Keep the SAME JSX structure wherever possible.
-8. Apply ONLY the user's requested change.
-9. If the user asks to change a color, change ONLY that color.
-10. If the user asks to change text, change ONLY that text.
+1. Modify the existing component. Do NOT create a new component.
+2. Keep the SAME component name.
+3. Preserve the existing layout.
+4. Preserve all existing functionality.
+5. Do NOT redesign the UI.
+6. Do NOT change unrelated parts of the component.
+7. Apply ONLY the change requested by the user.
+8. Keep the existing JSX structure wherever possible.
+9. If the user asks to change a color, change ONLY the relevant color.
+10. If the user asks to change text, change ONLY the relevant text.
 11. If the user asks to change spacing, change ONLY the relevant spacing.
-12. Preserve all existing styling and functionality that the user did not ask to change.
-13. Return the COMPLETE updated React component.
-14. Return ONLY JSX code.
-15. Do NOT return markdown.
-16. Do NOT use code fences.
-17. Do NOT explain your changes.
+12. If the user asks to add something, add only that requested feature.
+13. Do NOT remove existing functionality unless explicitly requested.
+14. Return the COMPLETE updated React component.
+15. Return ONLY JSX code.
+16. Do NOT return markdown.
+17. Do NOT use code fences.
+18. Do NOT explain your changes.
 
-IMPORTANT:
-If the instruction is:
+IMPORTANT EXAMPLE:
 
+User instruction:
 "make the background color pink"
 
-then ONLY change the relevant background color to pink.
-
-Do NOT redesign the component.
-Do NOT create a different page.
-Do NOT change the component structure.
+Expected behavior:
+- Keep the exact same component.
+- Keep the exact same layout.
+- Keep the same buttons, text, inputs, icons and functionality.
+- Change the relevant background color to pink.
+- Do NOT create a different page.
+- Do NOT redesign the component.
 
 USER INSTRUCTION:
 ${instruction}
@@ -110,9 +110,9 @@ ${existingCode}
 `;
     }
 
-    // ====================
+    // ==========================
     // GENERATE NEW COMPONENT
-    // ====================
+    // ==========================
 
     else {
       finalPrompt = `
@@ -123,7 +123,7 @@ Generate ONE production-ready React functional component.
 RULES:
 
 - Use React + Tailwind CSS only.
-- Export a default React component.
+- Export a default React functional component.
 - Do NOT use external libraries.
 - Do NOT use react-icons.
 - Do NOT use lucide-react.
@@ -139,9 +139,13 @@ ${prompt}
 `;
     }
 
+    // --------------------------
+    // Generate response
+    // --------------------------
+
     const result = await runCompilation(finalPrompt);
 
-    res.json({
+    res.status(200).json({
       success: true,
       result,
     });
@@ -161,7 +165,7 @@ ${prompt}
 // --------------------
 
 app.get("/", (req, res) => {
-  res.json({
+  res.status(200).json({
     success: true,
     message: "Frontend Copilot API is running",
   });
