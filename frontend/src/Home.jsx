@@ -1,255 +1,158 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import axios from "axios";
+import Header from "./components/Header";
+import EmptyState from "./components/EmptyState";
+import PromptComposer from "./components/PromptComposer";
+import Workspace from "./components/Workspace";
+import Toast from "./components/Toast";
+
 const API = import.meta.env.VITE_API_URL;
 
 export default function Home() {
   const [prompt, setPrompt] = useState("");
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
   const [instruction, setInstruction] = useState("");
+  
+  // New States
+  const [history, setHistory] = useState([]); // [{ instruction, code }, ...]
+  const [device, setDevice] = useState("desktop");
+  const [toast, setToast] = useState({ message: "", type: "" }); // { message, type }
 
-  const previewDoc = useMemo(() => {
-    if (!result) return "";
+  const showToast = (message, type = "success") => {
+    setToast({ message, type });
+    setTimeout(() => setToast({ message: "", type: "" }), 3000);
+  };
 
-    const componentName =
-      result.match(/export\s+default\s+function\s+(\w+)/)?.[1] ||
-      result.match(/export\s+default\s+const\s+(\w+)/)?.[1] ||
-      "Component";
+  const handleSubmit = async () => {
+    if (!prompt.trim()) {
+      showToast("Please enter a prompt", "error");
+      return;
+    }
 
-    const cleanedCode = result
-      .replace(/import.*?;\n?/g, "")
-      .replace("export default ", "");
+    try {
+      setLoading(true);
+      setInstruction(""); 
+      setHistory([]);
 
-    return `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-          <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-          <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-          <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-        </head>
+      const response = await axios.post(`${API}/api/generate`, {
+        prompt,
+      });
 
-        <body class="p-4 bg-white">
-          <div id="root"></div>
+      setResult(response.data.result);
+      showToast("Component generated successfully", "success");
+    } catch {
+      showToast("Failed to generate component. Please try again.", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-          <script type="text/babel">
-            const { useState, useEffect, useMemo } = React;
+  const handleRefine = async () => {
+    if (!instruction.trim() || !result) {
+      if (!instruction.trim()) showToast("Please enter a refinement instruction", "error");
+      return;
+    }
 
-            ${cleanedCode}
+    try {
+      setLoading(true);
 
-            const root = ReactDOM.createRoot(document.getElementById("root"));
-            root.render(<${componentName} />);
-          </script>
-        </body>
-      </html>
-    `;
-  }, [result]);
+      const response = await axios.post(`${API}/api/generate`, {
+        existingCode: result,
+        instruction,
+      });
 
- const handleSubmit = async () => {
-  if (!prompt.trim()) return;
+      // Save previous state to history before updating
+      setHistory((prev) => [{ instruction, code: result }, ...prev]);
+      
+      setResult(response.data.result);
+      setInstruction("");
+      showToast("Component updated successfully", "success");
+    } catch {
+      showToast("Failed to refine component.", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  try {
-    setLoading(true);
-    setError("");
-    setInstruction(""); // clear old refine text
+  const handleUndo = () => {
+    if (history.length === 0) return;
+    
+    const lastState = history[0];
+    setResult(lastState.code);
+    setHistory((prev) => prev.slice(1));
+    showToast("Changes reverted", "success");
+  };
 
-    const response = await axios.post(`${API}/api/generate`, {
-  prompt,
-});
-
-    setResult(response.data.result);
-  } catch {
-    setError("Failed to generate component.");
-  } finally {
-    setLoading(false);
-  }
-};
-
-const handleRefine = async () => {
-  if (!instruction.trim() || !result) return;
-
-  try {
-    setLoading(true);
-    setError("");
-
-   const response = await axios.post(`${API}/api/generate`, {
-  existingCode: result,
-  instruction,
-});
-
-    setResult(response.data.result);
+  const handleNewComponent = () => {
+    if (result && !window.confirm("Start a new component? Your current component will be cleared.")) {
+      return;
+    }
+    
+    setResult("");
+    setPrompt("");
     setInstruction("");
-  } catch {
-    setError("Failed to refine component.");
-  } finally {
-    setLoading(false);
-  }
-};
-
-  const copyCode = async () => {
-    await navigator.clipboard.writeText(result);
-    setCopied(true);
-
-    setTimeout(() => setCopied(false), 2000);
+    setHistory([]);
+    setDevice("desktop");
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 py-8 px-5">
-      <div className="max-w-[1500px] mx-auto bg-white rounded-3xl shadow-xl p-8 lg:p-10">
+    <div className="min-h-screen bg-slate-50 font-sans selection:bg-indigo-100 selection:text-indigo-900 overflow-x-hidden">
+      <div className="max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
+        <Header onNewComponent={handleNewComponent} />
 
-        {/* Header */}
-        <div className="flex items-center gap-4 mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-indigo-600 flex items-center justify-center text-white text-2xl">
-            ✨
-          </div>
-
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-4xl font-bold text-slate-900">
-                Frontend Copilot
-              </h1>
-
-              <span className="px-2 py-1 text-xs font-semibold bg-emerald-100 text-emerald-700 rounded-full">
-                BETA
-              </span>
+        {!result ? (
+          <div className="flex flex-col items-center justify-center mt-6 md:mt-10 w-full relative z-10">
+            {/* Glow background */}
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-2xl h-[300px] bg-indigo-500/10 blur-[100px] rounded-full pointer-events-none -z-10"></div>
+            
+            {/* Hero */}
+            <div className="text-center mb-8">
+              <h2 className="text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight mb-4">
+                Build interfaces with AI.
+              </h2>
+              <p className="text-lg text-slate-500 max-w-xl mx-auto px-4">
+                Generate React components, preview them instantly, and refine them with natural language.
+              </p>
             </div>
 
-            <p className="text-slate-500 mt-1">
-              Generate, preview and refine beautiful React components instantly.
-            </p>
-          </div>
-        </div>
-
-        {/* Prompt Bar */}
-        <div className="flex items-center gap-3 border border-slate-200 rounded-2xl p-2 bg-white shadow-sm">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="w-5 h-5 text-slate-400 ml-2"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M21 21l-4.35-4.35M10 18a8 8 0 100-16 8 8 0 000 16z"
-            />
-          </svg>
-
-          <input
-            type="text"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Describe any React component..."
-            className="flex-1 outline-none text-lg py-3"
-          />
-
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-medium transition"
-          >
-            {loading ? "Generating..." : "Generate"}
-          </button>
-        </div>
-
-        {error && (
-          <p className="mt-4 text-red-600 font-medium">{error}</p>
-        )}
-
-        {/* RESULT */}
-        {result && (
-          <div className="mt-8 space-y-6">
-
-            {/* Live Preview */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-3 border-b bg-slate-50">
-                <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500"></div>
-                  <h3 className="font-semibold text-slate-800">
-                    Live Preview
-                  </h3>
-                </div>
-
-                <span className="text-xs text-slate-500">
-                  Rendered with React
-                </span>
-              </div>
-
-              <iframe
-                title="preview"
-                srcDoc={previewDoc}
-                className="w-full h-[650px] bg-white border-0"
+            {/* Prompt Composer */}
+            <div className="w-full px-2 sm:px-0">
+              <PromptComposer 
+                prompt={prompt}
+                setPrompt={setPrompt}
+                onSubmit={handleSubmit}
+                loading={loading}
               />
             </div>
 
-            {/* AI Refine */}
-<div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-  <div className="flex items-center gap-2 mb-3">
-    <div className="w-8 h-8 rounded-lg bg-violet-100 flex items-center justify-center">
-      ✨
-    </div>
-    <div>
-      <h3 className="font-semibold text-slate-800">AI Refine</h3>
-      <p className="text-sm text-slate-500">
-        Modify the current component without starting over.
-      </p>
-    </div>
-  </div>
-
-  <div className="flex gap-3">
-    <input
-      type="text"
-      value={instruction}
-      onChange={(e) => setInstruction(e.target.value)}
-      placeholder="e.g. Make it dark mode with glassmorphism"
-      className="flex-1 border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-violet-500"
-    />
-
-    <button
-  onClick={handleRefine}
-  disabled={loading}
-  className="bg-violet-600 hover:bg-violet-700 text-white px-5 rounded-xl font-medium disabled:bg-gray-400"
->
-  {loading ? "Refining..." : "Refine"}
-</button>
-  </div>
-</div>
-
-            {/* Generated Code */}
-            <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-              <div className="bg-slate-900 text-white flex justify-between items-center px-5 py-3">
-                <h3 className="font-medium">Generated Code</h3>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={copyCode}
-                    className="bg-emerald-500 hover:bg-emerald-600 px-3 py-1 rounded-lg text-sm"
-                  >
-                    {copied ? "Copied!" : "Copy"}
-                  </button>
-
-                  <button
-                    onClick={handleSubmit}
-                    disabled={loading}
-                    className="bg-indigo-500 hover:bg-indigo-600 px-3 py-1 rounded-lg text-sm"
-                  >
-                    {loading ? "Generating..." : "Regenerate"}
-                  </button>
-                </div>
-              </div>
-
-              <pre className="bg-[#0B1220] text-green-400 p-5 overflow-x-auto text-sm whitespace-pre-wrap">
-                {result}
-              </pre>
-            </div>
+            {/* Examples, Workflow, Preview */}
+            <EmptyState onSelectPrompt={(selectedPrompt) => setPrompt(selectedPrompt)} />
           </div>
+        ) : (
+          <Workspace
+            result={result}
+            device={device}
+            setDevice={setDevice}
+            instruction={instruction}
+            setInstruction={setInstruction}
+            onRefine={handleRefine}
+            loading={loading}
+            history={history}
+            onUndo={handleUndo}
+            onRegenerate={handleSubmit}
+            showToast={showToast}
+          />
+        )}
+
+        {toast.message && (
+          <Toast message={toast.message} type={toast.type} />
         )}
       </div>
+
+      <footer className="mt-16 py-8 text-center text-slate-400 text-sm border-t border-slate-200 bg-white w-full">
+        <p>Frontend Copilot • Built with React + Tailwind + Gemini</p>
+      </footer>
     </div>
   );
 }
