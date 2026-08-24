@@ -6,6 +6,8 @@ dotenv.config();
 
 const app = express();
 
+const PORT = process.env.PORT || 5000;
+
 // --------------------
 // CORS
 // --------------------
@@ -13,7 +15,7 @@ const app = express();
 app.use((req, res, next) => {
   const origin = req.headers.origin;
 
-  // Allow our frontend and local development
+  // Allow production frontend and local development
   if (
     origin === "https://frontend-copilot.vercel.app" ||
     origin === "http://localhost:5173"
@@ -31,7 +33,7 @@ app.use((req, res, next) => {
     "Content-Type"
   );
 
-  // Handle browser preflight request
+  // Handle preflight request
   if (req.method === "OPTIONS") {
     return res.status(204).end();
   }
@@ -185,8 +187,9 @@ app.get("/", (req, res) => {
 });
 
 // --------------------
-// Vercel
+// Start Server
 // --------------------
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
