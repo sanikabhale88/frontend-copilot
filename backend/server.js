@@ -1,5 +1,4 @@
 const express = require("express");
-const cors = require("cors");
 const { GoogleGenAI } = require("@google/genai");
 const dotenv = require("dotenv");
 
@@ -8,21 +7,42 @@ dotenv.config();
 const app = express();
 
 // --------------------
-// Middleware
+// CORS
 // --------------------
 
-app.use(
-  cors({
-    origin: true,
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type"],
-  })
-);
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+
+  // Allow our frontend and local development
+  if (
+    origin === "https://frontend-copilot.vercel.app" ||
+    origin === "http://localhost:5173"
+  ) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  }
+
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET, POST, OPTIONS"
+  );
+
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type"
+  );
+
+  // Handle browser preflight request
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
+  next();
+});
 
 app.use(express.json());
 
 // --------------------
-// Gemini AI
+// Gemini
 // --------------------
 
 const ai = new GoogleGenAI({
@@ -57,50 +77,47 @@ app.post("/api/generate", async (req, res) => {
     let finalPrompt = "";
 
     // ==========================
-    // REFINE EXISTING COMPONENT
+    // REFINE
     // ==========================
 
     if (isRefine) {
       finalPrompt = `
 You are a senior React engineer acting strictly as a CODE EDITOR.
 
-Your task is to modify the EXISTING React component.
-
-The user wants a specific change to the existing component.
+Modify the EXISTING React component.
 
 STRICT RULES:
 
-1. Modify the existing component. Do NOT create a new component.
-2. Keep the SAME component name.
-3. Preserve the existing layout.
-4. Preserve all existing functionality.
-5. Do NOT redesign the UI.
-6. Do NOT change unrelated parts of the component.
-7. Apply ONLY the change requested by the user.
-8. Keep the existing JSX structure wherever possible.
-9. If the user asks to change a color, change ONLY the relevant color.
-10. If the user asks to change text, change ONLY the relevant text.
-11. If the user asks to change spacing, change ONLY the relevant spacing.
-12. If the user asks to add something, add only that requested feature.
-13. Do NOT remove existing functionality unless explicitly requested.
-14. Return the COMPLETE updated React component.
-15. Return ONLY JSX code.
-16. Do NOT return markdown.
-17. Do NOT use code fences.
-18. Do NOT explain your changes.
+1. Modify the existing component.
+2. DO NOT create a new component.
+3. Keep the SAME component name.
+4. Preserve the existing layout.
+5. Preserve all existing functionality.
+6. DO NOT redesign the UI.
+7. DO NOT change unrelated parts.
+8. Apply ONLY the user's requested change.
+9. If the user asks to change a color, change ONLY that color.
+10. If the user asks to change text, change ONLY that text.
+11. If the user asks to change spacing, change ONLY that spacing.
+12. Do not remove existing functionality unless explicitly requested.
+13. Return the COMPLETE updated component.
+14. Return ONLY JSX.
+15. No markdown.
+16. No code fences.
+17. No explanation.
 
-IMPORTANT EXAMPLE:
+Example:
 
-User instruction:
+User:
 "make the background color pink"
 
-Expected behavior:
-- Keep the exact same component.
-- Keep the exact same layout.
-- Keep the same buttons, text, inputs, icons and functionality.
-- Change the relevant background color to pink.
-- Do NOT create a different page.
-- Do NOT redesign the component.
+You should:
+- Keep the same component.
+- Keep the same layout.
+- Keep the same buttons.
+- Keep the same text.
+- Keep the same functionality.
+- Change only the relevant background color to pink.
 
 USER INSTRUCTION:
 ${instruction}
@@ -111,7 +128,7 @@ ${existingCode}
     }
 
     // ==========================
-    // GENERATE NEW COMPONENT
+    // GENERATE
     // ==========================
 
     else {
@@ -123,13 +140,13 @@ Generate ONE production-ready React functional component.
 RULES:
 
 - Use React + Tailwind CSS only.
-- Export a default React functional component.
+- Export a default React component.
 - Do NOT use external libraries.
 - Do NOT use react-icons.
 - Do NOT use lucide-react.
 - Do NOT use heroicons.
-- Use inline SVG when icons are needed.
-- Return ONLY JSX code.
+- Use inline SVG if icons are needed.
+- Return ONLY JSX.
 - No markdown.
 - No explanation.
 - No code fences.
@@ -138,10 +155,6 @@ USER REQUEST:
 ${prompt}
 `;
     }
-
-    // --------------------------
-    // Generate response
-    // --------------------------
 
     const result = await runCompilation(finalPrompt);
 
