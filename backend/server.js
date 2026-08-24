@@ -187,5 +187,6 @@ app.get("/", (req, res) => {
 // --------------------
 // Vercel
 // --------------------
-
-module.exports = app;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
