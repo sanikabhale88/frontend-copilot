@@ -1,4 +1,6 @@
-export default function Header({ onNewComponent }) {
+import ModeSwitcher from "./ModeSwitcher";
+
+export default function Header({ onNewComponent, mode, onModeChange, modeDisabled }) {
   return (
     <header className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-8">
       <div className="flex items-center gap-3">
@@ -17,7 +19,8 @@ export default function Header({ onNewComponent }) {
         </div>
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center justify-center gap-4">
+        <ModeSwitcher mode={mode} onChange={onModeChange} disabled={modeDisabled} />
         <a
   href="https://github.com/sanikabhale88/frontend-copilot"
   target="_blank"
@@ -29,12 +32,14 @@ export default function Header({ onNewComponent }) {
           </svg>
           GitHub
         </a>
-        <button
-          onClick={onNewComponent}
-          className="bg-white border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-sm font-semibold transition shadow-sm"
-        >
-          New Component
-        </button>
+        {mode === "component" && (
+          <button
+            onClick={onNewComponent}
+            className="bg-white border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50 text-indigo-600 px-3 py-1.5 rounded-lg text-sm font-semibold transition shadow-sm"
+          >
+            New Component
+          </button>
+        )}
       </div>
     </header>
   );

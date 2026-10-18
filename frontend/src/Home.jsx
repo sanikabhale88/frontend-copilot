@@ -5,6 +5,8 @@ import EmptyState from "./components/EmptyState";
 import PromptComposer from "./components/PromptComposer";
 import Workspace from "./components/Workspace";
 import Toast from "./components/Toast";
+import ProjectWorkspace from "./components/project/ProjectWorkspace";
+import sampleProject from "./project/sampleProject";
 
 const API = import.meta.env.VITE_API_URL;
 
@@ -18,6 +20,7 @@ export default function Home() {
   const [history, setHistory] = useState([]); // [{ instruction, code }, ...]
   const [device, setDevice] = useState("desktop");
   const [toast, setToast] = useState({ message: "", type: "" }); // { message, type }
+  const [mode, setMode] = useState("component"); // "component" | "project"
 
   const showToast = (message, type = "success") => {
     setToast({ message, type });
@@ -99,9 +102,16 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-slate-50 font-sans selection:bg-indigo-100 selection:text-indigo-900 overflow-x-hidden">
       <div className="max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
-        <Header onNewComponent={handleNewComponent} />
+        <Header
+          onNewComponent={handleNewComponent}
+          mode={mode}
+          onModeChange={setMode}
+          modeDisabled={loading}
+        />
 
-        {!result ? (
+        {mode === "project" ? (
+          <ProjectWorkspace project={sampleProject} showToast={showToast} />
+        ) : !result ? (
           <div className="flex flex-col items-center justify-center mt-6 md:mt-10 w-full relative z-10">
             {/* Glow background */}
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-2xl h-[300px] bg-indigo-500/10 blur-[100px] rounded-full pointer-events-none -z-10"></div>
