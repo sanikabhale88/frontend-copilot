@@ -1,6 +1,8 @@
 const express = require("express");
 const { GoogleGenAI } = require("@google/genai");
 const dotenv = require("dotenv");
+const { getComponentName } = require("./validator");
+const { generateVerified } = require("./verifiedGeneration");
 
 dotenv.config();
 
@@ -61,29 +63,11 @@ async function runCompilation(prompt) {
 }
 
 // --------------------
-// Generate / Refine
+// Prompts
 // --------------------
 
-app.post("/api/generate", async (req, res) => {
-  try {
-    const {
-      prompt,
-      existingCode,
-      instruction,
-    } = req.body;
-
-    const isRefine =
-      Boolean(existingCode?.trim()) &&
-      Boolean(instruction?.trim());
-
-    let finalPrompt = "";
-
-    // ==========================
-    // REFINE
-    // ==========================
-
-    if (isRefine) {
-      finalPrompt = `
+function buildRefinePrompt(existingCode, instruction) {
+  return `
 You are a senior React engineer acting strictly as a CODE EDITOR.
 
 Modify the EXISTING React component.
@@ -127,14 +111,10 @@ ${instruction}
 EXISTING COMPONENT:
 ${existingCode}
 `;
-    }
+}
 
-    // ==========================
-    // GENERATE
-    // ==========================
-
-    else {
-      finalPrompt = `
+function buildGeneratePrompt(prompt) {
+  return `
 You are an expert React developer.
 
 Generate ONE production-ready React functional component.
@@ -156,21 +136,52 @@ RULES:
 USER REQUEST:
 ${prompt}
 `;
-    }
+}
 
-    const result = await runCompilation(finalPrompt);
+// --------------------
+// Generate / Refine
+// --------------------
+
+app.post("/api/generate", async (req, res) => {
+  try {
+    const {
+      prompt,
+      existingCode,
+      instruction,
+    } = req.body;
+
+    const isRefine =
+      Boolean(existingCode?.trim()) &&
+      Boolean(instruction?.trim());
+
+    // The generated code is validated and auto-repaired before it is sent back
+    const { result, report } = isRefine
+      ? await generateVerified(runCompilation, buildRefinePrompt(existingCode, instruction), {
+          originalName: getComponentName(existingCode),
+        })
+      : await generateVerified(runCompilation, buildGeneratePrompt(prompt));
 
     res.status(200).json({
       success: true,
       result,
+      report,
     });
 
   } catch (error) {
     console.error("Generation error:", error);
 
-    res.status(500).json({
+    // Gemini's quota/overload errors are common on the free tier: pass them on
+    // with their status and a message the user can act on
+    const friendlyMessages = {
+      429: "Gemini API quota exceeded. The free tier allows a limited number of requests per day, so try again later or use another API key.",
+      503: "Gemini is overloaded right now. Please try again in a minute.",
+    };
+
+    const status = friendlyMessages[error.status] ? error.status : 500;
+
+    res.status(status).json({
       success: false,
-      message: error.message,
+      message: friendlyMessages[status] || error.message,
     });
   }
 });

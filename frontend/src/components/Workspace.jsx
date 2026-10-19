@@ -14,7 +14,12 @@ export default function Workspace({
   history, 
   onUndo, 
   onRegenerate,
-  showToast
+  showToast,
+  report,
+  onPreviewStatus,
+  previewStatus,
+  previewError,
+  onFixError
 }) {
   const [activeTab, setActiveTab] = useState("preview"); // "preview" or "code"
 
@@ -50,7 +55,11 @@ export default function Workspace({
           <PreviewPanel 
             result={result} 
             device={device} 
-            setDevice={setDevice} 
+            setDevice={setDevice}
+            onStatus={onPreviewStatus}
+            canFixError={Boolean(previewError)}
+            onFixError={onFixError}
+            fixing={loading}
           />
           <RefinePanel 
             instruction={instruction}
@@ -66,6 +75,9 @@ export default function Workspace({
         <div className={`lg:w-[45%] flex-col ${activeTab === "code" ? "flex" : "hidden lg:flex"}`}>
           <CodePanel 
             result={result}
+            report={report}
+            previewStatus={previewStatus}
+            previewError={previewError}
             onRegenerate={onRegenerate}
             loading={loading}
             showToast={showToast}

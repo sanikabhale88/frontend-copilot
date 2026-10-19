@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import axios from "axios";
 import Header from "./components/Header";
 import EmptyState from "./components/EmptyState";
@@ -13,11 +13,13 @@ const API = import.meta.env.VITE_API_URL;
 export default function Home() {
   const [prompt, setPrompt] = useState("");
   const [result, setResult] = useState("");
+  const [report, setReport] = useState(null); // backend verification report for `result`
   const [loading, setLoading] = useState(false);
   const [instruction, setInstruction] = useState("");
-  
+
   // New States
-  const [history, setHistory] = useState([]); // [{ instruction, code }, ...]
+  const [history, setHistory] = useState([]); // [{ instruction, code, report }, ...]
+  const [preview, setPreview] = useState(null); // { code, status, message } last reported by the live preview
   const [device, setDevice] = useState("desktop");
   const [toast, setToast] = useState({ message: "", type: "" }); // { message, type }
   const [mode, setMode] = useState("component"); // "component" | "project"
@@ -43,17 +45,23 @@ export default function Home() {
       });
 
       setResult(response.data.result);
+      setReport(response.data.report ?? null);
       showToast("Component generated successfully", "success");
-    } catch {
-      showToast("Failed to generate component. Please try again.", "error");
+    } catch (error) {
+      showToast(error.response?.data?.message || "Failed to generate component. Please try again.", "error");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRefine = async () => {
-    if (!instruction.trim() || !result) {
-      if (!instruction.trim()) showToast("Please enter a refinement instruction", "error");
+  // `request` overrides the typed instruction (used by "Fix this error");
+  // `label` is what the refinement history shows for it
+  const handleRefine = async (request, label) => {
+    const isOverride = typeof request === "string";
+    const text = isOverride ? request : instruction;
+
+    if (!text.trim() || !result) {
+      if (!text.trim()) showToast("Please enter a refinement instruction", "error");
       return;
     }
 
@@ -62,17 +70,18 @@ export default function Home() {
 
       const response = await axios.post(`${API}/api/generate`, {
         existingCode: result,
-        instruction,
+        instruction: text,
       });
 
       // Save previous state to history before updating
-      setHistory((prev) => [{ instruction, code: result }, ...prev]);
-      
+      setHistory((prev) => [{ instruction: label || text, code: result, report }, ...prev]);
+
       setResult(response.data.result);
-      setInstruction("");
+      setReport(response.data.report ?? null);
+      if (!isOverride) setInstruction("");
       showToast("Component updated successfully", "success");
-    } catch {
-      showToast("Failed to refine component.", "error");
+    } catch (error) {
+      showToast(error.response?.data?.message || "Failed to refine component.", "error");
     } finally {
       setLoading(false);
     }
@@ -83,8 +92,31 @@ export default function Home() {
     
     const lastState = history[0];
     setResult(lastState.code);
+    setReport(lastState.report ?? null);
     setHistory((prev) => prev.slice(1));
     showToast("Changes reverted", "success");
+  };
+
+  // Remember the preview status together with the code it belongs to, so a status
+  // from an older version is never shown for the current one
+  const handlePreviewStatus = useCallback(
+    (status, message) => {
+      setPreview({ code: result, status, message });
+    },
+    [result]
+  );
+
+  const previewStatus = preview?.code === result ? preview.status : "loading"; // "loading" | "ready" | "error"
+  const previewError = previewStatus === "error" ? preview.message : "";
+
+  const handleFixError = () => {
+    if (!previewError) return;
+
+    handleRefine(
+      `The component throws this error in the live preview:\n\n${previewError}\n\n` +
+        "Fix the cause of this error. Change only what is needed to fix it.",
+      `Fix error: ${previewError.split("\n")[0]}`
+    );
   };
 
   const handleNewComponent = () => {
@@ -93,6 +125,7 @@ export default function Home() {
     }
     
     setResult("");
+    setReport(null);
     setPrompt("");
     setInstruction("");
     setHistory([]);
@@ -152,6 +185,11 @@ export default function Home() {
             onUndo={handleUndo}
             onRegenerate={handleSubmit}
             showToast={showToast}
+            report={report}
+            onPreviewStatus={handlePreviewStatus}
+            previewStatus={previewStatus}
+            previewError={previewError}
+            onFixError={handleFixError}
           />
         )}
 

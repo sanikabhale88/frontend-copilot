@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import FileTree from "./FileTree";
 import FileViewer from "./FileViewer";
+import ProjectPreview from "./ProjectPreview";
 import { buildFileTree, getFolderPaths, getParentFolders } from "../../project/fileTree";
 
 export default function ProjectWorkspace({ project, showToast }) {
@@ -69,6 +70,9 @@ export default function ProjectWorkspace({ project, showToast }) {
           </div>
         </div>
       </section>
+
+      {/* Live preview of the whole project */}
+      <ProjectPreview files={project.files} />
 
       {/* Explorer */}
       <section className="grid gap-4 lg:grid-cols-[260px_1fr]">

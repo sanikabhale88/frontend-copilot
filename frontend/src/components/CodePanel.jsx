@@ -1,4 +1,6 @@
-export default function CodePanel({ result, onRegenerate, loading, showToast }) {
+import VerificationBadge from "./VerificationBadge";
+
+export default function CodePanel({ result, report, previewStatus, previewError, onRegenerate, loading, showToast }) {
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(result);
@@ -29,11 +31,12 @@ export default function CodePanel({ result, onRegenerate, loading, showToast }) 
   return (
     <div className="bg-slate-900 rounded-2xl overflow-hidden shadow-sm border border-slate-800 flex flex-col h-[700px]">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between px-5 py-3 border-b border-slate-800 bg-slate-900/90 gap-3 shrink-0">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
           </svg>
           <h3 className="font-medium text-white">Generated Code</h3>
+          <VerificationBadge report={report} previewStatus={previewStatus} previewError={previewError} />
         </div>
 
         <div className="flex flex-wrap gap-2 self-end sm:self-auto">
