@@ -2,9 +2,12 @@ import { useMemo, useState } from "react";
 import FileTree from "./FileTree";
 import FileViewer from "./FileViewer";
 import ProjectPreview from "./ProjectPreview";
+import ProjectReport from "./ProjectReport";
 import { buildFileTree, getFolderPaths, getParentFolders } from "../../project/fileTree";
 
-export default function ProjectWorkspace({ project, showToast }) {
+// `report` and `onEditBlueprint` are set for a generated project; without them
+// this shows the built-in sample
+export default function ProjectWorkspace({ project, showToast, report = null, onEditBlueprint }) {
   const tree = useMemo(() => buildFileTree(Object.keys(project.files)), [project.files]);
 
   const [selectedPath, setSelectedPath] = useState(() =>
@@ -51,25 +54,44 @@ export default function ProjectWorkspace({ project, showToast }) {
       <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div>
-            <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
-              Sample project — AI generation coming soon
-            </span>
+            {report ? (
+              <span className="text-xs font-medium text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full">
+                Generated from your blueprint
+              </span>
+            ) : (
+              <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                Sample project
+              </span>
+            )}
             <h2 className="mt-3 text-2xl font-bold text-slate-900 tracking-tight">
               {project.name}
             </h2>
             <p className="mt-1 text-slate-500">{project.description}</p>
           </div>
 
-          <div className="flex gap-3">
-            {stats.map((stat) => (
-              <div key={stat.label} className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-center">
-                <div className="text-xl font-bold text-slate-900">{stat.value}</div>
-                <div className="text-xs font-medium text-slate-500">{stat.label}</div>
-              </div>
-            ))}
+          <div className="flex flex-col items-end gap-3">
+            <div className="flex gap-3">
+              {stats.map((stat) => (
+                <div key={stat.label} className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-center">
+                  <div className="text-xl font-bold text-slate-900">{stat.value}</div>
+                  <div className="text-xs font-medium text-slate-500">{stat.label}</div>
+                </div>
+              ))}
+            </div>
+            {onEditBlueprint && (
+              <button
+                type="button"
+                onClick={onEditBlueprint}
+                className="text-sm font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg"
+              >
+                ← Edit blueprint
+              </button>
+            )}
           </div>
         </div>
       </section>
+
+      {report && <ProjectReport report={report} />}
 
       {/* Live preview of the whole project */}
       <ProjectPreview files={project.files} />

@@ -5,6 +5,8 @@ const { getComponentName, validateComponent, failedPlaybookRules } = require("./
 const { generateVerified } = require("./verifiedGeneration");
 const { reviewChanges } = require("./changeReview");
 const { normalizePlaybook, playbookPromptSection, playbookSummary } = require("./playbook");
+const { planBlueprint, normalizeBlueprint } = require("./blueprint");
+const { generateProject } = require("./projectGeneration");
 
 dotenv.config();
 
@@ -243,6 +245,47 @@ app.post("/api/review-changes", async (req, res) => {
     res.status(200).json({ success: true, items });
   } catch (error) {
     sendError(res, error, "Review error");
+  }
+});
+
+// --------------------
+// Project mode: plan a blueprint, then generate the project from it
+// --------------------
+
+// Body: { prompt, blueprint?, playbook? } → { blueprint }
+// `blueprint` (the current, possibly edited one, with answered questions) makes this a re-plan
+app.post("/api/plan", async (req, res) => {
+  try {
+    const { prompt } = req.body;
+    const current = req.body.blueprint ? normalizeBlueprint(req.body.blueprint) : null;
+
+    const blueprint = await planBlueprint(runCompilation, prompt, {
+      current,
+      playbook: normalizePlaybook(req.body.playbook),
+    });
+
+    res.status(200).json({ success: true, blueprint });
+  } catch (error) {
+    sendError(res, error, "Plan error");
+  }
+});
+
+// Body: { blueprint, playbook? } → { project, report }
+app.post("/api/generate-project", async (req, res) => {
+  try {
+    if (!req.body.blueprint || typeof req.body.blueprint !== "object") {
+      throw Object.assign(new Error("A blueprint is required."), { status: 400 });
+    }
+
+    // The user may have edited it: clean it up again before generating from it
+    const blueprint = normalizeBlueprint(req.body.blueprint);
+    const { project, report } = await generateProject(runCompilation, blueprint, {
+      playbook: normalizePlaybook(req.body.playbook),
+    });
+
+    res.status(200).json({ success: true, project, report });
+  } catch (error) {
+    sendError(res, error, "Project generation error");
   }
 });
 

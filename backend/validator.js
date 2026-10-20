@@ -109,7 +109,9 @@ function getComponentName(code) {
   }
 }
 
-// Returns { code, componentName, checks, errors }.
+const onlyReact = (source) => source === "react";
+
+// Returns { code, componentName, checks, errors, ast }.
 // `code` is the cleaned (and possibly import-fixed) code to send to the frontend,
 // `checks` is [{ id, group: "code"|"playbook", label, status: "pass"|"fixed"|"fail"|"skipped", message }],
 // `errors` lists the failing checks' messages, ready to go into a repair prompt.
@@ -117,7 +119,9 @@ function getComponentName(code) {
 // `playbook` (normalized) adds the team's checked rules; `baseline` lists playbook
 // check ids that already failed before a refine: they are reported but not sent to
 // repair, so a small refine doesn't rewrite unrelated code.
-function validateComponent(raw, { originalName, playbook = null, baseline = [] } = {}) {
+// `allowImport(source)` decides which imports are allowed (project files also use
+// react-router-dom and relative imports). `ast` is null when the code doesn't parse.
+function validateComponent(raw, { originalName, playbook = null, baseline = [], allowImport = onlyReact } = {}) {
   const checks = [];
   const add = (id, label, status, message = "") => checks.push({ id, group: "code", label, status, message });
 
@@ -146,16 +150,16 @@ function validateComponent(raw, { originalName, playbook = null, baseline = [] }
     ]) {
       add(id, label, "skipped", "Skipped because the code doesn't parse.");
     }
-    return finish(code, "", checks);
+    return finish(code, "", checks, null);
   }
 
   // ---------- Imports ----------
   const imports = ast.program.body.filter((n) => n.type === "ImportDeclaration");
-  const badImports = [...new Set(imports.map((n) => n.source.value).filter((s) => s !== "react"))];
+  const badImports = [...new Set(imports.map((n) => n.source.value).filter((s) => !allowImport(s)))];
 
   add(
     "imports",
-    "Only React imports",
+    allowImport === onlyReact ? "Only React imports" : "Only supported imports",
     badImports.length ? "fail" : "pass",
     badImports.length
       ? `Imports ${badImports.map((s) => `"${s}"`).join(", ")}, which the preview can't load. ` +
@@ -241,13 +245,13 @@ function validateComponent(raw, { originalName, playbook = null, baseline = [] }
     }
   }
 
-  return finish(code, componentName, checks);
+  return finish(code, componentName, checks, ast);
 }
 
 // Pre-existing playbook violations are reported but not repaired
-function finish(code, componentName, checks) {
+function finish(code, componentName, checks, ast) {
   const errors = checks.filter((c) => c.status === "fail" && !c.preexisting).map((c) => c.message);
-  return { code, componentName, checks, errors };
+  return { code, componentName, checks, errors, ast };
 }
 
 // Ids of the playbook rules `code` already breaks (the baseline for a refine)

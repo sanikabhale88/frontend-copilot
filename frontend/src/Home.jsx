@@ -5,8 +5,7 @@ import EmptyState from "./components/EmptyState";
 import PromptComposer from "./components/PromptComposer";
 import Workspace from "./components/Workspace";
 import Toast from "./components/Toast";
-import ProjectWorkspace from "./components/project/ProjectWorkspace";
-import sampleProject from "./project/sampleProject";
+import ProjectBuilder from "./components/project/ProjectBuilder";
 import { buildFixInstruction, summarizeAudit } from "./preview/qualityReport";
 import { computeChanges, revertHunks } from "./diff/codeChanges";
 import PlaybookDialog from "./components/playbook/PlaybookDialog";
@@ -272,9 +271,12 @@ export default function Home() {
           />
         )}
 
-        {mode === "project" ? (
-          <ProjectWorkspace project={sampleProject} showToast={showToast} />
-        ) : !result ? (
+        {/* Kept mounted while hidden, so switching modes doesn't lose the project */}
+        <div hidden={mode !== "project"}>
+          <ProjectBuilder playbook={playbook} showToast={showToast} />
+        </div>
+
+        {mode === "project" ? null : !result ? (
           <div className="flex flex-col items-center justify-center mt-6 md:mt-10 w-full relative z-10">
             {/* Glow background */}
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-2xl h-[300px] bg-indigo-500/10 blur-[100px] rounded-full pointer-events-none -z-10"></div>
