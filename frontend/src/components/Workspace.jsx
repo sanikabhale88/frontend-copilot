@@ -2,6 +2,8 @@ import { useState } from "react";
 import PreviewPanel from "./PreviewPanel";
 import CodePanel from "./CodePanel";
 import RefinePanel from "./RefinePanel";
+import QualityPanel from "./QualityPanel";
+import QualityAuditor from "./QualityAuditor";
 
 export default function Workspace({ 
   result, 
@@ -19,12 +21,22 @@ export default function Workspace({
   onPreviewStatus,
   previewStatus,
   previewError,
-  onFixError
+  onFixError,
+  changes,
+  review,
+  onReviewChanges,
+  onRevertHunks,
+  quality,
+  onAuditResult,
+  onAutoFix
 }) {
   const [activeTab, setActiveTab] = useState("preview"); // "preview" or "code"
 
   return (
     <div className="mt-8">
+      {/* Off-screen audit previews that feed the Quality Gate */}
+      <QualityAuditor code={result} onResult={onAuditResult} />
+
       {/* Mobile Tabs */}
       <div className="lg:hidden flex border-b border-slate-200 mb-6">
         <button
@@ -61,7 +73,13 @@ export default function Workspace({
             onFixError={onFixError}
             fixing={loading}
           />
-          <RefinePanel 
+          <QualityPanel
+            quality={quality}
+            previousScore={history[0]?.score ?? null}
+            onAutoFix={onAutoFix}
+            loading={loading}
+          />
+          <RefinePanel
             instruction={instruction}
             setInstruction={setInstruction}
             onRefine={onRefine}
@@ -78,6 +96,11 @@ export default function Workspace({
             report={report}
             previewStatus={previewStatus}
             previewError={previewError}
+            changes={changes}
+            changeLabel={history[0]?.instruction}
+            review={review}
+            onReviewChanges={onReviewChanges}
+            onRevertHunks={onRevertHunks}
             onRegenerate={onRegenerate}
             loading={loading}
             showToast={showToast}

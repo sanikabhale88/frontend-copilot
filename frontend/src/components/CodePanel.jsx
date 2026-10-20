@@ -1,6 +1,25 @@
+import { useState } from "react";
 import VerificationBadge from "./VerificationBadge";
+import ChangesView from "./ChangesView";
 
-export default function CodePanel({ result, report, previewStatus, previewError, onRegenerate, loading, showToast }) {
+export default function CodePanel({
+  result,
+  report,
+  previewStatus,
+  previewError,
+  changes,
+  changeLabel,
+  review,
+  onReviewChanges,
+  onRevertHunks,
+  onRegenerate,
+  loading,
+  showToast,
+}) {
+  const [view, setView] = useState("code"); // "code" | "changes"
+
+  // The Changes tab exists only after a refine
+  const activeView = changes ? view : "code";
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(result);
@@ -73,10 +92,51 @@ export default function CodePanel({ result, report, previewStatus, previewError,
         </div>
       </div>
 
+      {changes && (
+        <div className="flex gap-1 px-5 pt-3 bg-[#0B1220] shrink-0" role="tablist" aria-label="Code view">
+          {[
+            { value: "code", label: "Code" },
+            {
+              value: "changes",
+              label: (
+                <>
+                  Changes{" "}
+                  <span className="text-emerald-400">+{changes.stats.added}</span>{" "}
+                  <span className="text-rose-400">−{changes.stats.removed}</span>
+                </>
+              ),
+            },
+          ].map((tab) => (
+            <button
+              key={tab.value}
+              role="tab"
+              aria-selected={activeView === tab.value}
+              onClick={() => setView(tab.value)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                activeView === tab.value ? "bg-slate-800 text-white" : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="flex-1 overflow-auto bg-[#0B1220] p-5">
-        <pre className="text-emerald-400 text-[13px] leading-relaxed font-mono whitespace-pre-wrap">
-          {result}
-        </pre>
+        {activeView === "changes" ? (
+          <ChangesView
+            changes={changes}
+            changeLabel={changeLabel}
+            review={review}
+            onReviewChanges={onReviewChanges}
+            onRevertHunks={onRevertHunks}
+            busy={loading || review.status === "loading"}
+          />
+        ) : (
+          <pre className="text-emerald-400 text-[13px] leading-relaxed font-mono whitespace-pre-wrap">
+            {result}
+          </pre>
+        )}
       </div>
     </div>
   );

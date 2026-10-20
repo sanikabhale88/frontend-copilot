@@ -1,8 +1,10 @@
 const express = require("express");
 const { GoogleGenAI } = require("@google/genai");
 const dotenv = require("dotenv");
-const { getComponentName } = require("./validator");
+const { getComponentName, validateComponent, failedPlaybookRules } = require("./validator");
 const { generateVerified } = require("./verifiedGeneration");
+const { reviewChanges } = require("./changeReview");
+const { normalizePlaybook, playbookPromptSection, playbookSummary } = require("./playbook");
 
 dotenv.config();
 
@@ -53,20 +55,47 @@ const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
-async function runCompilation(prompt) {
-  const response = await ai.models.generateContent({
-    model: "gemini-3.6-flash",
-    contents: prompt,
-  });
+// Can be switched (e.g. to a less busy model) without code changes
+const MODEL = process.env.GEMINI_MODEL || "gemini-3.6-flash";
 
-  return response.text;
+// Waits before each retry when Gemini is overloaded (503); overloads are usually brief
+const OVERLOAD_RETRY_DELAYS_MS = [2000, 5000];
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// `config` is passed through to Gemini, e.g. for JSON output
+async function runCompilation(prompt, config) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: MODEL,
+        contents: prompt,
+        ...(config && { config }),
+      });
+
+      return response.text;
+    } catch (error) {
+      const delay = OVERLOAD_RETRY_DELAYS_MS[attempt];
+      if (error.status !== 503 || delay === undefined) throw error;
+
+      console.warn(`Gemini overloaded (503), retrying in ${delay / 1000}s...`);
+      await sleep(delay);
+    }
+  }
 }
 
 // --------------------
 // Prompts
 // --------------------
 
-function buildRefinePrompt(existingCode, instruction) {
+// The playbook only governs the code the edit touches, so a small refine doesn't
+// turn into a rewrite of unrelated code
+function buildRefinePrompt(existingCode, instruction, playbook = null) {
+  const playbookSection = playbook
+    ? `${playbookPromptSection(playbook)}Apply the team playbook to the code you add or change. Do NOT rewrite unrelated code just to follow it.
+`
+    : "";
+
   return `
 You are a senior React engineer acting strictly as a CODE EDITOR.
 
@@ -104,7 +133,7 @@ You should:
 - Keep the same text.
 - Keep the same functionality.
 - Change only the relevant background color to pink.
-
+${playbookSection}
 USER INSTRUCTION:
 ${instruction}
 
@@ -113,7 +142,7 @@ ${existingCode}
 `;
 }
 
-function buildGeneratePrompt(prompt) {
+function buildGeneratePrompt(prompt, playbook = null) {
   return `
 You are an expert React developer.
 
@@ -132,10 +161,33 @@ RULES:
 - No markdown.
 - No explanation.
 - No code fences.
-
+${playbookPromptSection(playbook)}
 USER REQUEST:
 ${prompt}
 `;
+}
+
+// --------------------
+// Errors
+// --------------------
+
+// Gemini's quota/overload errors are common on the free tier: pass them on with
+// their status and a message the user can act on. Errors marked with status 400
+// are bad requests whose message is safe to show.
+const friendlyMessages = {
+  429: "Gemini API quota exceeded. The free tier allows a limited number of requests per day, so try again later or use another API key.",
+  503: "Gemini is still overloaded after several retries. Please try again in a minute.",
+};
+
+function sendError(res, error, label) {
+  console.error(`${label}:`, error);
+
+  const status = (friendlyMessages[error.status] || error.status === 400) ? error.status : 500;
+
+  res.status(status).json({
+    success: false,
+    message: friendlyMessages[status] || error.message,
+  });
 }
 
 // --------------------
@@ -150,16 +202,21 @@ app.post("/api/generate", async (req, res) => {
       instruction,
     } = req.body;
 
+    const playbook = normalizePlaybook(req.body.playbook);
+
     const isRefine =
       Boolean(existingCode?.trim()) &&
       Boolean(instruction?.trim());
 
-    // The generated code is validated and auto-repaired before it is sent back
+    // The generated code is validated and auto-repaired before it is sent back.
+    // On refine, playbook rules the existing code already broke are not repaired.
     const { result, report } = isRefine
-      ? await generateVerified(runCompilation, buildRefinePrompt(existingCode, instruction), {
+      ? await generateVerified(runCompilation, buildRefinePrompt(existingCode, instruction, playbook), {
           originalName: getComponentName(existingCode),
+          playbook,
+          baseline: failedPlaybookRules(existingCode, playbook),
         })
-      : await generateVerified(runCompilation, buildGeneratePrompt(prompt));
+      : await generateVerified(runCompilation, buildGeneratePrompt(prompt, playbook), { playbook });
 
     res.status(200).json({
       success: true,
@@ -168,21 +225,58 @@ app.post("/api/generate", async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Generation error:", error);
+    sendError(res, error, "Generation error");
+  }
+});
 
-    // Gemini's quota/overload errors are common on the free tier: pass them on
-    // with their status and a message the user can act on
-    const friendlyMessages = {
-      429: "Gemini API quota exceeded. The free tier allows a limited number of requests per day, so try again later or use another API key.",
-      503: "Gemini is overloaded right now. Please try again in a minute.",
-    };
+// --------------------
+// Review a refine's changes (on demand)
+// --------------------
 
-    const status = friendlyMessages[error.status] ? error.status : 500;
+// Body: { instruction, hunks: [{ removed, added }] }
+// Returns { items: [{ hunk, requested: true|false|null, summary, reason }] }
+app.post("/api/review-changes", async (req, res) => {
+  try {
+    const { instruction, hunks } = req.body;
+    const items = await reviewChanges(runCompilation, instruction, hunks);
 
-    res.status(status).json({
-      success: false,
-      message: friendlyMessages[status] || error.message,
+    res.status(200).json({ success: true, items });
+  } catch (error) {
+    sendError(res, error, "Review error");
+  }
+});
+
+// --------------------
+// Validate code without Gemini (e.g. after a local revert)
+// --------------------
+
+// Body: { code, originalName?, playbook?, baselineCode? } → { result, report } like
+// /api/generate, without repairs. Playbook rules `baselineCode` already broke are
+// marked as pre-existing, as on refine.
+app.post("/api/validate", (req, res) => {
+  try {
+    const { code, originalName, baselineCode } = req.body;
+    const playbook = normalizePlaybook(req.body.playbook);
+
+    if (typeof code !== "string" || !code.trim()) {
+      throw Object.assign(new Error("Code is required."), { status: 400 });
+    }
+
+    const baseline = typeof baselineCode === "string" ? failedPlaybookRules(baselineCode, playbook) : [];
+    const validation = validateComponent(code, { originalName, playbook, baseline });
+
+    res.status(200).json({
+      success: true,
+      result: validation.code,
+      report: {
+        verified: validation.errors.length === 0,
+        repairs: 0,
+        checks: validation.checks,
+        playbook: playbookSummary(playbook),
+      },
     });
+  } catch (error) {
+    sendError(res, error, "Validation error");
   }
 });
 

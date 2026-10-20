@@ -5,6 +5,7 @@ const statusStyles = {
   fixed: { icon: "↻", text: "text-sky-400" },
   fail: { icon: "✕", text: "text-rose-400" },
   pending: { icon: "…", text: "text-slate-400" },
+  guided: { icon: "◦", text: "text-slate-400" },
   skipped: { icon: "–", text: "text-slate-500" },
 };
 
@@ -59,12 +60,25 @@ function CheckList({ title, checks }) {
   );
 }
 
-// Shows the verification result for the current code: the backend's code checks
-// plus whether the live preview rendered. "Verified" only when both pass.
+// Shows the verification result for the current code: the backend's code checks,
+// the team playbook's checked rules (if any) and whether the live preview rendered.
+// "Verified" only when all of them pass.
 export default function VerificationBadge({ report, previewStatus, previewError }) {
   const [open, setOpen] = useState(false);
 
   if (!report) return null;
+
+  const codeChecks = report.checks.filter((check) => (check.group ?? "code") === "code");
+  const playbookChecks = report.checks.filter((check) => check.group === "playbook");
+  const playbookPassed = playbookChecks.filter((check) => check.status === "pass" || check.status === "fixed").length;
+
+  // Guided rules are prompt-only: listed so nobody mistakes them for verified ones
+  const guidedChecks = (report.playbook?.guided ?? []).map((label, index) => ({
+    id: `guided-${index}`,
+    label,
+    status: "guided",
+    message: "Guided: sent to the AI, not checked.",
+  }));
 
   const runtime = runtimeCheck(previewStatus, previewError);
   const allChecks = [...report.checks, runtime];
@@ -111,13 +125,24 @@ export default function VerificationBadge({ report, previewStatus, previewError 
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-2 z-20 w-80 max-w-[calc(100vw-2rem)] bg-slate-800 border border-slate-700 rounded-xl shadow-xl p-4">
+        <div className="absolute left-0 top-full mt-2 z-20 w-80 max-w-[calc(100vw-2rem)] max-h-[480px] overflow-auto bg-slate-800 border border-slate-700 rounded-xl shadow-xl p-4">
           <CheckList
             title={`Code checks${report.repairs > 0 ? ` · ${report.repairs} repair ${report.repairs === 1 ? "pass" : "passes"}` : ""}`}
-            checks={report.checks}
+            checks={codeChecks}
           />
 
           <div className="border-t border-slate-700 my-4" />
+
+          {report.playbook && (
+            <>
+              <CheckList
+                title={`Team playbook · ${report.playbook.name} · ${playbookPassed}/${playbookChecks.length} rules`}
+                checks={[...playbookChecks, ...guidedChecks]}
+              />
+
+              <div className="border-t border-slate-700 my-4" />
+            </>
+          )}
 
           <CheckList title="Live preview" checks={[runtime]} />
         </div>

@@ -1,6 +1,6 @@
 import ModeSwitcher from "./ModeSwitcher";
 
-export default function Header({ onNewComponent, mode, onModeChange, modeDisabled }) {
+export default function Header({ onNewComponent, mode, onModeChange, modeDisabled, playbook, onOpenPlaybook }) {
   return (
     <header className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-8">
       <div className="flex items-center gap-3">
@@ -21,6 +21,22 @@ export default function Header({ onNewComponent, mode, onModeChange, modeDisable
 
       <div className="flex flex-wrap items-center justify-center gap-4">
         <ModeSwitcher mode={mode} onChange={onModeChange} disabled={modeDisabled} />
+        {mode === "component" && (
+          <button
+            onClick={onOpenPlaybook}
+            aria-haspopup="dialog"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition border shadow-sm ${
+              playbook
+                ? "bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
+                : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"
+            }`}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Playbook: {playbook ? playbook.name : "Off"}
+          </button>
+        )}
         <a
   href="https://github.com/sanikabhale88/frontend-copilot"
   target="_blank"

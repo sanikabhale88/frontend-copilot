@@ -4,6 +4,7 @@
 
 const { parse } = require("@babel/parser");
 const traverse = require("@babel/traverse").default;
+const { checkPlaybook } = require("./playbook");
 
 // React APIs the model often uses without importing; missing imports get added
 const REACT_APIS = new Set([
@@ -110,12 +111,15 @@ function getComponentName(code) {
 
 // Returns { code, componentName, checks, errors }.
 // `code` is the cleaned (and possibly import-fixed) code to send to the frontend,
-// `checks` is [{ id, label, status: "pass"|"fixed"|"fail"|"skipped", message }],
+// `checks` is [{ id, group: "code"|"playbook", label, status: "pass"|"fixed"|"fail"|"skipped", message }],
 // `errors` lists the failing checks' messages, ready to go into a repair prompt.
 // Pass `originalName` on refine to make sure the component wasn't renamed.
-function validateComponent(raw, { originalName } = {}) {
+// `playbook` (normalized) adds the team's checked rules; `baseline` lists playbook
+// check ids that already failed before a refine: they are reported but not sent to
+// repair, so a small refine doesn't rewrite unrelated code.
+function validateComponent(raw, { originalName, playbook = null, baseline = [] } = {}) {
   const checks = [];
-  const add = (id, label, status, message = "") => checks.push({ id, label, status, message });
+  const add = (id, label, status, message = "") => checks.push({ id, group: "code", label, status, message });
 
   const cleaned = cleanCode(raw);
   let code = cleaned.code;
@@ -228,12 +232,31 @@ function validateComponent(raw, { originalName } = {}) {
     );
   }
 
+  // ---------- Team playbook ----------
+  for (const check of checkPlaybook(ast, cleaned.code, playbook)) {
+    if (check.status === "fail" && baseline.includes(check.id)) {
+      checks.push({ ...check, preexisting: true, message: `Already broken before this change. ${check.message}` });
+    } else {
+      checks.push(check);
+    }
+  }
+
   return finish(code, componentName, checks);
 }
 
+// Pre-existing playbook violations are reported but not repaired
 function finish(code, componentName, checks) {
-  const errors = checks.filter((c) => c.status === "fail").map((c) => c.message);
+  const errors = checks.filter((c) => c.status === "fail" && !c.preexisting).map((c) => c.message);
   return { code, componentName, checks, errors };
 }
 
-module.exports = { validateComponent, getComponentName, cleanCode };
+// Ids of the playbook rules `code` already breaks (the baseline for a refine)
+function failedPlaybookRules(code, playbook) {
+  if (!playbook) return [];
+
+  return validateComponent(code, { playbook })
+    .checks.filter((c) => c.group === "playbook" && c.status === "fail")
+    .map((c) => c.id);
+}
+
+module.exports = { validateComponent, getComponentName, cleanCode, failedPlaybookRules };

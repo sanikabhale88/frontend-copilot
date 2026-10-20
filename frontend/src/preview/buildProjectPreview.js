@@ -1,5 +1,6 @@
 import { resolvePath } from "./resolvePath.js";
 import { runProject } from "./previewRuntime.js";
+import { runAudit } from "./auditRuntime.js";
 
 // Pinned browser (UMD) builds, in dependency order: each reads the globals of the
 // ones before it. React 18 / Router v6 because React 19 and Router v7 no longer
@@ -13,12 +14,18 @@ const LIBRARIES = [
   "https://unpkg.com/@babel/standalone@7.26.10/babel.min.js",
 ];
 
+// Accessibility checker, only loaded into audit iframes
+const AXE = "https://unpkg.com/axe-core@4.10.2/axe.min.js";
+
 // Escaping "<" keeps a "</script>" inside some file's code from closing the tag early
 const toSafeJson = (value) => JSON.stringify(value).replace(/</g, "\\u003c");
 
-// `bodyClass` lets a single component get some breathing room (a whole app sets its own layout)
-export function buildProjectPreview(files, entry = "src/App.jsx", { bodyClass = "" } = {}) {
-  const scripts = LIBRARIES.map((src) => `<script src="${src}"></script>`).join("\n    ");
+// `bodyClass` lets a single component get some breathing room (a whole app sets its own layout).
+// `audit: { width, axe }` turns the preview into a quality audit (see auditRuntime.js).
+export function buildProjectPreview(files, entry = "src/App.jsx", { bodyClass = "", audit = null } = {}) {
+  const libraries = audit?.axe ? [...LIBRARIES, AXE] : LIBRARIES;
+  const scripts = libraries.map((src) => `<script src="${src}"></script>`).join("\n    ");
+  const auditCall = audit ? `(${runAudit.toString()})(${audit.width}, ${Boolean(audit.axe)});` : "";
 
   return `<!DOCTYPE html>
 <html>
@@ -47,6 +54,7 @@ export function buildProjectPreview(files, entry = "src/App.jsx", { bodyClass = 
         var files = JSON.parse(document.getElementById("project-files").textContent);
 
         (${runProject.toString()})(files, ${toSafeJson(entry)}, ${resolvePath.toString()});
+        ${auditCall}
       })();
     </script>
   </body>
