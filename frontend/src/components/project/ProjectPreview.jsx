@@ -4,7 +4,9 @@ import { buildProjectPreview } from "../../preview/buildProjectPreview.js";
 import { usePreviewMessages } from "../../preview/usePreviewMessages.js";
 import { deviceWidths, statusStyles } from "../../preview/previewUi.js";
 
-export default function ProjectPreview({ files }) {
+// `onStatus(status, error, where)` reports ready/errors to the parent; `onFixError`
+// (generated projects only) adds a "Fix this error" button to the error bar
+export default function ProjectPreview({ files, onStatus, onFixError, fixing = false }) {
   const iframeRef = useRef(null);
   const srcDoc = useMemo(() => buildProjectPreview(files), [files]);
 
@@ -12,7 +14,7 @@ export default function ProjectPreview({ files }) {
   const [device, setDevice] = useState("desktop");
 
   // Status, error and route reset on their own whenever the iframe reloads
-  const { status, error, route } = usePreviewMessages(iframeRef, `${reloadKey}:${srcDoc}`);
+  const { status, error, route } = usePreviewMessages(iframeRef, `${reloadKey}:${srcDoc}`, onStatus);
 
   const refresh = () => {
     setReloadKey((key) => key + 1);
@@ -58,8 +60,18 @@ export default function ProjectPreview({ files }) {
 
       {/* Error bar: first line only; the full message is shown inside the iframe */}
       {status === "error" && (
-        <div role="alert" className="px-5 py-2 bg-rose-50 border-b border-rose-200 text-sm text-rose-700 font-mono truncate shrink-0">
-          {error.split("\n")[0]}
+        <div role="alert" className="flex items-center gap-3 px-5 py-2 bg-rose-50 border-b border-rose-200 shrink-0">
+          <span className="flex-1 min-w-0 text-sm text-rose-700 font-mono truncate">{error.split("\n")[0]}</span>
+          {onFixError && (
+            <button
+              type="button"
+              onClick={onFixError}
+              disabled={fixing}
+              className="shrink-0 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white px-3 py-1 rounded-lg text-xs font-semibold transition"
+            >
+              {fixing ? "Fixing..." : "Fix this error"}
+            </button>
+          )}
         </div>
       )}
 

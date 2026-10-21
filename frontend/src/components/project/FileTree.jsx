@@ -5,6 +5,7 @@ export default function FileTree({
   expandedFolders,
   onSelectFile,
   onToggleFolder,
+  changedPaths = null, // Set of files changed by the last update, marked with a dot
 }) {
   return (
     <ul>
@@ -52,6 +53,7 @@ export default function FileTree({
                   expandedFolders={expandedFolders}
                   onSelectFile={onSelectFile}
                   onToggleFolder={onToggleFolder}
+                  changedPaths={changedPaths}
                 />
               )}
             </li>
@@ -88,6 +90,12 @@ export default function FileTree({
                 />
               </svg>
               <span className="truncate">{node.name}</span>
+              {changedPaths?.has(node.path) && (
+                <span className="ml-auto shrink-0 flex items-center gap-1 text-[10px] font-semibold text-amber-600" title="Changed by the last update">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+                  <span className="sr-only">changed</span>
+                </span>
+              )}
             </button>
           </li>
         );

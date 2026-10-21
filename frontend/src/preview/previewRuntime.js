@@ -6,7 +6,7 @@
 // Must stay self-contained (no imports, no outside variables): its source text is
 // injected into the iframe with .toString(). React, ReactDOM, ReactRouterDOM and
 // Babel are globals from the CDN scripts loaded by buildProjectPreview.
-export function runProject(files, entry, resolvePath) {
+export function runProject(files, entry, resolvePath, initialRoute = "/") {
   const h = React.createElement;
 
   // ---------- Talking to the parent app ----------
@@ -15,13 +15,15 @@ export function runProject(files, entry, resolvePath) {
     window.parent.postMessage({ source: "project-preview", type, ...payload }, "*");
   };
 
-  // Show only the first error; later ones are usually caused by it
+  // Show only the first error; later ones are usually caused by it.
+  // `where` = { file } for module errors or { components } (from React's component
+  // stack) for render errors, so the app can tell which file to fix.
   let errorShown = false;
 
-  const showError = (message) => {
+  const showError = (message, where = {}) => {
     if (errorShown) return;
     errorShown = true;
-    report("error", { message });
+    report("error", { message, ...where });
 
     const box = document.createElement("div");
     box.style.cssText =
@@ -32,8 +34,12 @@ export function runProject(files, entry, resolvePath) {
     document.body.appendChild(box);
   };
 
+  // React (development build) also reports render errors here, *before* the
+  // ErrorBoundary below gets them with the component stack. Wait a moment so the
+  // boundary's report, which says which component crashed, wins.
   window.addEventListener("error", (event) => {
-    showError(event.error?.message || event.message);
+    const message = event.error?.message || event.message;
+    setTimeout(() => showError(message), 50);
   });
 
   window.addEventListener("unhandledrejection", (event) => {
@@ -51,15 +57,28 @@ export function runProject(files, entry, resolvePath) {
 
   const cache = {};
 
+  // Errors while compiling or running a module's top level remember their file
+  class ModuleError extends Error {
+    constructor(message, file) {
+      super(message);
+      this.file = file;
+    }
+  }
+
   function loadModule(path) {
     if (cache[path]) return cache[path].exports;
 
     // JSX + import/export → plain JS using require() / module.exports
-    const { code } = Babel.transform(files[path], {
-      filename: path,
-      presets: ["react"],
-      plugins: ["transform-modules-commonjs"],
-    });
+    let code;
+    try {
+      code = Babel.transform(files[path], {
+        filename: path,
+        presets: ["react"],
+        plugins: ["transform-modules-commonjs"],
+      }).code;
+    } catch (error) {
+      throw new ModuleError(error.message, path);
+    }
 
     // Cache before running, so circular imports don't loop forever
     const module = { exports: {} };
@@ -88,7 +107,12 @@ export function runProject(files, entry, resolvePath) {
       return loadModule(resolved);
     };
 
-    new Function("require", "module", "exports", code)(localRequire, module, module.exports);
+    try {
+      new Function("require", "module", "exports", code)(localRequire, module, module.exports);
+    } catch (error) {
+      // Keep the innermost file (an import that failed deeper down)
+      throw error instanceof ModuleError ? error : new ModuleError(error.message, path);
+    }
 
     return module.exports;
   }
@@ -105,8 +129,14 @@ export function runProject(files, entry, resolvePath) {
       return { failed: true };
     }
 
-    componentDidCatch(error) {
-      showError(error.message);
+    // React's component stack names the components that were rendering, innermost
+    // first; the app maps those names to project files
+    componentDidCatch(error, info) {
+      const components = [...String(info?.componentStack || "").matchAll(/at ([A-Z][\w$]*)/g)]
+        .map((match) => match[1])
+        .filter((name) => name !== "ErrorBoundary");
+
+      showError(error.message, { components });
     }
 
     render() {
@@ -136,13 +166,18 @@ export function runProject(files, entry, resolvePath) {
       throw new Error(`${entry} must have a default export component.`);
     }
 
-    // MemoryRouter: an srcDoc iframe has no real URL for BrowserRouter to use
+    // MemoryRouter: an srcDoc iframe has no real URL for BrowserRouter to use.
+    // Audits start on a specific route.
     ReactDOM.createRoot(document.getElementById("root")).render(
-      h(ReactRouterDOM.MemoryRouter, null, h(ErrorBoundary, null, h(RouteReporter), h(App)))
+      h(
+        ReactRouterDOM.MemoryRouter,
+        { initialEntries: [initialRoute] },
+        h(ErrorBoundary, null, h(RouteReporter), h(App))
+      )
     );
 
     report("ready");
   } catch (error) {
-    showError(error.message);
+    showError(error.message, error.file ? { file: error.file } : {});
   }
 }

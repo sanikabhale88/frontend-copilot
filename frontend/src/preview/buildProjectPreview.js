@@ -22,7 +22,12 @@ const toSafeJson = (value) => JSON.stringify(value).replace(/</g, "\\u003c");
 
 // `bodyClass` lets a single component get some breathing room (a whole app sets its own layout).
 // `audit: { width, axe }` turns the preview into a quality audit (see auditRuntime.js).
-export function buildProjectPreview(files, entry = "src/App.jsx", { bodyClass = "", audit = null } = {}) {
+// `initialRoute` is where the app starts (audits check one route each).
+export function buildProjectPreview(
+  files,
+  entry = "src/App.jsx",
+  { bodyClass = "", audit = null, initialRoute = "/" } = {}
+) {
   const libraries = audit?.axe ? [...LIBRARIES, AXE] : LIBRARIES;
   const scripts = libraries.map((src) => `<script src="${src}"></script>`).join("\n    ");
   const auditCall = audit ? `(${runAudit.toString()})(${audit.width}, ${Boolean(audit.axe)});` : "";
@@ -53,7 +58,7 @@ export function buildProjectPreview(files, entry = "src/App.jsx", { bodyClass = 
 
         var files = JSON.parse(document.getElementById("project-files").textContent);
 
-        (${runProject.toString()})(files, ${toSafeJson(entry)}, ${resolvePath.toString()});
+        (${runProject.toString()})(files, ${toSafeJson(entry)}, ${resolvePath.toString()}, ${toSafeJson(initialRoute)});
         ${auditCall}
       })();
     </script>

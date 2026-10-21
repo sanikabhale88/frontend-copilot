@@ -6,26 +6,30 @@ const statusStyles = {
   skipped: { icon: "–", text: "text-slate-400" },
 };
 
-function CheckRow({ check }) {
+// `action` is an optional button shown on the right (e.g. "Fix this error")
+function CheckRow({ check, action = null }) {
   const style = statusStyles[check.status] ?? statusStyles.skipped;
 
   return (
     <li className="flex items-start gap-2 text-sm">
       <span className={`${style.text} font-bold w-4 shrink-0 text-center`} aria-hidden="true">{style.icon}</span>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="text-slate-800">
           {check.label}
           <span className="sr-only"> ({check.status})</span>
         </div>
         {check.message && <div className="text-xs text-slate-500 break-words mt-0.5">{check.message}</div>}
       </div>
+      {action}
     </li>
   );
 }
 
-// Verification of a generated project: does the code match the blueprint (drift),
-// and does every file pass the code checks (and the team playbook)?
-export default function ProjectReport({ report }) {
+// Verification of a generated project: does every page render (runtime), does the
+// code match the blueprint (drift), and does every file pass the code checks (and
+// the team playbook)? "Verified" only when all of them pass.
+// `runtime` comes from the per-page audits; `previewError` from the visible preview.
+export default function ProjectReport({ report, runtime, previewError = "", onFixError, onRecheck, busy = false }) {
   const drift = report.drift.filter((check) => check.status !== "warn");
   const driftPassed = drift.filter((check) => check.status === "pass" || check.status === "fixed").length;
   const warnings = report.drift.filter((check) => check.status === "warn");
@@ -33,24 +37,97 @@ export default function ProjectReport({ report }) {
   const files = Object.entries(report.files).sort(([a], [b]) => a.localeCompare(b));
   const failing = (checks) => checks.filter((check) => check.status === "fail");
   const codeIssues = files.reduce((total, [, checks]) => total + failing(checks).length, 0);
-  const issues = codeIssues + (drift.length - driftPassed);
+
+  // The visible preview can crash on something the audits don't reach (e.g. after a click)
+  const extraPreviewError = previewError && !runtime.failures.some((f) => f.message === previewError);
+  const runtimeIssues = runtime.failures.length + (extraPreviewError ? 1 : 0);
+  const issues = codeIssues + (drift.length - driftPassed) + runtimeIssues;
+
+  const badge = issues
+    ? { text: `⚠ ${issues} issue${issues === 1 ? "" : "s"}`, style: "bg-rose-50 text-rose-700 border-rose-200" }
+    : runtime.status === "pending"
+      ? { text: "… Checking every page", style: "bg-slate-50 text-slate-600 border-slate-200" }
+      : runtime.status === "incomplete"
+        ? {
+            text: `! ${runtime.unchecked.length} page${runtime.unchecked.length === 1 ? "" : "s"} not checked`,
+            style: "bg-amber-50 text-amber-700 border-amber-200",
+          }
+        : { text: "✓ Verified", style: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+
+  const fixButton = (failure) =>
+    onFixError && (
+      <button
+        type="button"
+        onClick={() => onFixError(failure)}
+        disabled={busy}
+        className="shrink-0 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white px-2.5 py-1 rounded-lg text-xs font-semibold transition"
+      >
+        {busy ? "Working..." : "Fix this error"}
+      </button>
+    );
 
   return (
     <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6" aria-labelledby="project-report-title">
       <div className="flex flex-wrap items-center gap-3 mb-5">
         <h3 id="project-report-title" className="font-semibold text-slate-900 text-lg">Verification</h3>
-        <span
-          className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${
-            issues ? "bg-rose-50 text-rose-700 border-rose-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"
-          }`}
-        >
-          {issues ? `⚠ ${issues} issue${issues === 1 ? "" : "s"}` : "✓ Verified"}
+        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${badge.style}`} aria-live="polite">
+          {badge.text}
         </span>
         <span className="text-sm text-slate-500">
           Blueprint match <strong className="text-slate-800">{driftPassed}/{drift.length}</strong>
           {report.repairs > 0 && ` · ${report.repairs} repair ${report.repairs === 1 ? "pass" : "passes"}`}
           {report.playbook && ` · Playbook: ${report.playbook.name}`}
         </span>
+      </div>
+
+      {/* Runtime: every page rendered in the background audits */}
+      <div className="mb-6">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
+          Live check ·{" "}
+          {runtime.status === "pending"
+            ? `checking pages (${runtime.passed + runtime.failures.length}/${runtime.total})...`
+            : `${runtime.passed}/${runtime.total} pages render${runtime.unchecked.length ? ` · ${runtime.unchecked.length} not checked` : ""}`}
+        </h4>
+        <ul className="space-y-2.5">
+          {runtime.failures.map((failure) => (
+            <CheckRow
+              key={failure.page.route}
+              check={{ id: failure.page.route, label: `${failure.page.name} (${failure.page.route}) crashes`, status: "fail", message: failure.message }}
+              action={fixButton(failure)}
+            />
+          ))}
+          {extraPreviewError && (
+            <CheckRow
+              check={{ id: "preview", label: "The live preview crashed", status: "fail", message: previewError }}
+              action={fixButton({ message: previewError, fromPreview: true })}
+            />
+          )}
+          {runtime.unchecked.map((unchecked, index) => (
+            <CheckRow
+              key={`unchecked-${unchecked.route}`}
+              check={{
+                id: unchecked.route,
+                label: `${unchecked.name} (${unchecked.route}) not checked`,
+                status: "warn",
+                message: "Loading timed out (often a slow connection). This is not a crash.",
+              }}
+              action={
+                index === 0 && onRecheck ? (
+                  <button
+                    type="button"
+                    onClick={onRecheck}
+                    className="shrink-0 bg-white border border-slate-300 hover:border-slate-400 text-slate-700 px-2.5 py-1 rounded-lg text-xs font-semibold transition"
+                  >
+                    Check again
+                  </button>
+                ) : null
+              }
+            />
+          ))}
+          {runtime.status === "pass" && !extraPreviewError && (
+            <CheckRow check={{ id: "runtime", label: "Every page renders without errors", status: "pass", message: "" }} />
+          )}
+        </ul>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

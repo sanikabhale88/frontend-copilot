@@ -14,9 +14,14 @@ const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 // `byWidth` maps each audit width to the message its iframe reported:
 // { overflow, smallTargets, a11y } on success, { skipped } / { error } / { failed, message } otherwise.
+// `widths` are the widths that were audited (they must include AXE_WIDTH and 375).
 // Returns { status: "running" | "unavailable" | "done", score, issues, notes, message }.
-export function summarizeAudit(byWidth = {}) {
-  const results = AUDIT_WIDTHS.map((width) => byWidth[width]);
+export function summarizeAudit(byWidth = {}, widths = AUDIT_WIDTHS) {
+  const results = widths.map((width) => byWidth[width]);
+
+  if (results.some((result) => result?.timedOut)) {
+    return { status: "unavailable", message: "The audit timed out before the page finished loading." };
+  }
 
   if (results.some((result) => result?.failed || result?.skipped)) {
     return {
@@ -50,7 +55,7 @@ export function summarizeAudit(byWidth = {}) {
   }
 
   // ---------- Responsive ----------
-  for (const width of AUDIT_WIDTHS) {
+  for (const width of widths) {
     const result = byWidth[width];
     if (result.error) notes.push(`Audit at ${width}px failed: ${result.error}`);
 
@@ -96,16 +101,108 @@ const FIX_HINTS = {
   touch: " Make each of them at least 24×24px (for example with padding or min-h/min-w).",
 };
 
+// One issue as fix text: what's wrong, a hint, and where
+export function issueText(issue) {
+  const example = issue.example ? `\n   Example: ${issue.example.replace(/\n/g, "\n   ")}` : "";
+  return `[${issue.category}] ${issue.title}. ${issue.detail}${FIX_HINTS[issue.category] ?? ""}${example}`;
+}
+
 // Refine instruction asking the model to fix exactly the listed issues
 export function buildFixInstruction(issues) {
-  const lines = issues.map((issue, index) => {
-    const example = issue.example ? `\n   Example: ${issue.example.replace(/\n/g, "\n   ")}` : "";
-    return `${index + 1}. [${issue.category}] ${issue.title}. ${issue.detail}${FIX_HINTS[issue.category] ?? ""}${example}`;
-  });
+  const lines = issues.map((issue, index) => `${index + 1}. ${issueText(issue)}`);
 
   return (
     "Fix these issues found by automated accessibility and responsive-layout checks. " +
     "Keep the same design, layout, content and functionality; change only what is needed to fix each issue.\n\n" +
     lines.join("\n")
   );
+}
+
+// ---------- Projects: one audit per page ----------
+
+// A project page is audited at mobile and desktop only (fewer iframes per route)
+export const PROJECT_AUDIT_WIDTHS = [375, AXE_WIDTH];
+
+// The URL to audit a route at: route params get a sample value (/recipes/:id → /recipes/1)
+export const auditRoute = (route) => route.replace(/:[^/]+/g, "1");
+
+// `byRoute` maps each page route to its { [width]: result }. Returns
+// - quality: the same shape as summarizeAudit (for QualityPanel), score = average of
+//   the audited pages, issues prefixed with their page and tagged with its file;
+// - runtime: { status: "pending" | "pass" | "fail" | "incomplete", total, passed, failures, unchecked },
+//   i.e. whether every page renders, not only the one in the visible preview.
+//   failures: [{ page, file, message, where }] where `where` ({ file?, components? })
+//   says where the error happened, when known. unchecked: pages whose audit timed out
+//   (not checked, which is not the same as crashed).
+export function summarizeProjectAudit(byRoute = {}, pages = []) {
+  const results = pages.map((page) => {
+    const byWidth = byRoute[page.route] ?? {};
+    const widthResults = PROJECT_AUDIT_WIDTHS.map((width) => byWidth[width]);
+    const failure = widthResults.find((r) => r?.failed) ?? widthResults.find((r) => r?.skipped);
+
+    return {
+      page,
+      summary: summarizeAudit(byWidth, PROJECT_AUDIT_WIDTHS),
+      crash: failure
+        ? { message: failure.message || "The page rendered nothing (it probably crashed).", where: failure.where ?? {} }
+        : null,
+      timedOut: !failure && widthResults.some((r) => r?.timedOut),
+    };
+  });
+
+  const finished = results.filter((r) => r.summary.status !== "running");
+  const failures = results
+    .filter((r) => r.crash)
+    .map((r) => ({ page: r.page, file: r.page.file, message: r.crash.message, where: r.crash.where }));
+  const unchecked = results.filter((r) => r.timedOut).map((r) => r.page);
+
+  const runtime = {
+    status: failures.length
+      ? "fail"
+      : finished.length < results.length
+        ? "pending"
+        : unchecked.length
+          ? "incomplete"
+          : "pass",
+    total: results.length,
+    passed: finished.length - failures.length - unchecked.length,
+    failures,
+    unchecked,
+  };
+
+  const audited = results.filter((r) => r.summary.status === "done");
+
+  let quality;
+  if (finished.length < results.length) {
+    quality = { status: "running" };
+  } else if (!audited.length) {
+    quality = { status: "unavailable", message: "The quality check runs once the pages render without errors." };
+  } else {
+    const issues = audited.flatMap(({ page, summary }) =>
+      summary.issues.map((issue) => ({
+        ...issue,
+        key: `${page.route}-${issue.key}`,
+        title: `${page.name} (${page.route}): ${issue.title}`,
+        file: page.file,
+      }))
+    );
+    issues.sort((a, b) => b.penalty - a.penalty);
+
+    const notes = [...new Set(audited.flatMap(({ summary }) => summary.notes))];
+    if (unchecked.length) {
+      notes.push(`${unchecked.length} page${unchecked.length === 1 ? "" : "s"} not audited because loading timed out.`);
+    }
+    if (failures.length) {
+      notes.push(`${failures.length} page${failures.length === 1 ? "" : "s"} not audited because ${failures.length === 1 ? "it crashes" : "they crash"}.`);
+    }
+
+    quality = {
+      status: "done",
+      score: Math.round(audited.reduce((total, r) => total + r.summary.score, 0) / audited.length),
+      issues,
+      notes,
+    };
+  }
+
+  return { quality, runtime };
 }

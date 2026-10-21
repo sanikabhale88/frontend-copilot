@@ -6,7 +6,8 @@ const { generateVerified } = require("./verifiedGeneration");
 const { reviewChanges } = require("./changeReview");
 const { normalizePlaybook, playbookPromptSection, playbookSummary } = require("./playbook");
 const { planBlueprint, normalizeBlueprint } = require("./blueprint");
-const { generateProject } = require("./projectGeneration");
+const { generateProject, finalizeProject, sanitizeFiles } = require("./projectGeneration");
+const { updateProject } = require("./projectUpdate");
 
 dotenv.config();
 
@@ -286,6 +287,44 @@ app.post("/api/generate-project", async (req, res) => {
     res.status(200).json({ success: true, project, report });
   } catch (error) {
     sendError(res, error, "Project generation error");
+  }
+});
+
+// Blueprint + files from the browser are untrusted: clean both
+function projectInput(body) {
+  if (!body.blueprint || typeof body.blueprint !== "object") {
+    throw Object.assign(new Error("A blueprint is required."), { status: 400 });
+  }
+  return {
+    blueprint: normalizeBlueprint(body.blueprint),
+    files: sanitizeFiles(body.files),
+    playbook: normalizePlaybook(body.playbook),
+  };
+}
+
+// Body: { blueprint, files, request, playbook? } → { files, report, changed }
+// request: { type: "refine", file, instruction } | { type: "fix-error", message, file? }
+//        | { type: "fix-quality", issues: [{ file?, message }] }
+app.post("/api/update-project", async (req, res) => {
+  try {
+    const { blueprint, files, playbook } = projectInput(req.body);
+    const result = await updateProject(runCompilation, blueprint, files, req.body.request, { playbook });
+
+    res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    sendError(res, error, "Project update error");
+  }
+});
+
+// Body: { blueprint, files, playbook? } → { report }, no Gemini (e.g. after a local revert)
+app.post("/api/verify-project", async (req, res) => {
+  try {
+    const { blueprint, files, playbook } = projectInput(req.body);
+    const { project, report } = await finalizeProject(null, blueprint, files, { playbook, maxRepairs: 0 });
+
+    res.status(200).json({ success: true, files: project.files, report });
+  } catch (error) {
+    sendError(res, error, "Project verification error");
   }
 });
 

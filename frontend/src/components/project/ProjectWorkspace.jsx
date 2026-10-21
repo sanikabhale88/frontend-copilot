@@ -3,12 +3,18 @@ import FileTree from "./FileTree";
 import FileViewer from "./FileViewer";
 import ProjectPreview from "./ProjectPreview";
 import ProjectReport from "./ProjectReport";
+import ProjectHistory from "./ProjectHistory";
+import QualityPanel from "../QualityPanel";
 import { buildFileTree, getFolderPaths, getParentFolders } from "../../project/fileTree";
+import { computeChanges } from "../../diff/codeChanges";
 
-// `report` and `onEditBlueprint` are set for a generated project; without them
-// this shows the built-in sample
-export default function ProjectWorkspace({ project, showToast, report = null, onEditBlueprint }) {
+// Shows a project: overview, preview, explorer, pages and components.
+// `session` is set for a generated project (ProjectBuilder) and adds verification,
+// the Quality Gate, refine/fix, history and per-file Changes; without it this shows
+// the built-in sample.
+export default function ProjectWorkspace({ project, showToast, session = null }) {
   const tree = useMemo(() => buildFileTree(Object.keys(project.files)), [project.files]);
+  const previousFiles = session?.previousFiles ?? null;
 
   const [selectedPath, setSelectedPath] = useState(() =>
     "src/App.jsx" in project.files ? "src/App.jsx" : Object.keys(project.files)[0] ?? null
@@ -37,6 +43,21 @@ export default function ProjectWorkspace({ project, showToast, report = null, on
 
   const selectedCode = selectedPath ? project.files[selectedPath] : undefined;
 
+  // Files the last update changed (or added), and the selected file's diff
+  const changedPaths = useMemo(
+    () =>
+      previousFiles
+        ? new Set(Object.keys(project.files).filter((path) => previousFiles[path] !== project.files[path]))
+        : null,
+    [previousFiles, project.files]
+  );
+
+  const selectedChanges = useMemo(
+    () =>
+      changedPaths?.has(selectedPath) ? computeChanges(previousFiles[selectedPath] ?? "", project.files[selectedPath]) : null,
+    [changedPaths, previousFiles, project.files, selectedPath]
+  );
+
   const stats = [
     { label: "Pages", value: project.pages.length },
     { label: "Components", value: project.components.length },
@@ -54,7 +75,7 @@ export default function ProjectWorkspace({ project, showToast, report = null, on
       <section className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div>
-            {report ? (
+            {session ? (
               <span className="text-xs font-medium text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full">
                 Generated from your blueprint
               </span>
@@ -78,10 +99,10 @@ export default function ProjectWorkspace({ project, showToast, report = null, on
                 </div>
               ))}
             </div>
-            {onEditBlueprint && (
+            {session && (
               <button
                 type="button"
-                onClick={onEditBlueprint}
+                onClick={session.onEditBlueprint}
                 className="text-sm font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg"
               >
                 ← Edit blueprint
@@ -91,10 +112,33 @@ export default function ProjectWorkspace({ project, showToast, report = null, on
         </div>
       </section>
 
-      {report && <ProjectReport report={report} />}
+      {session && (
+        <ProjectReport
+          report={session.report}
+          runtime={session.runtime}
+          previewError={session.previewError}
+          onFixError={session.onFixError}
+          onRecheck={session.onRecheck}
+          busy={session.busy}
+        />
+      )}
 
       {/* Live preview of the whole project */}
-      <ProjectPreview files={project.files} />
+      <ProjectPreview
+        files={project.files}
+        onStatus={session?.onPreviewStatus}
+        onFixError={session ? () => session.onFixError({ message: session.previewError, fromPreview: true }) : undefined}
+        fixing={session?.busy}
+      />
+
+      {session && (
+        <QualityPanel
+          quality={session.quality}
+          previousScore={session.previousScore}
+          onAutoFix={session.onAutoFix}
+          loading={session.busy}
+        />
+      )}
 
       {/* Explorer */}
       <section className="grid gap-4 lg:grid-cols-[260px_1fr]">
@@ -109,12 +153,26 @@ export default function ProjectWorkspace({ project, showToast, report = null, on
               expandedFolders={expandedFolders}
               onSelectFile={setSelectedPath}
               onToggleFolder={toggleFolder}
+              changedPaths={changedPaths}
             />
           </div>
         </div>
 
-        <FileViewer path={selectedPath} code={selectedCode} showToast={showToast} />
+        <FileViewer
+          path={selectedPath}
+          code={selectedCode}
+          showToast={showToast}
+          changes={selectedChanges}
+          changeLabel={session?.changeLabel}
+          review={session?.reviewFor(selectedPath) ?? { status: "idle" }}
+          onReviewChanges={() => session.onReviewChanges(selectedPath, selectedChanges)}
+          onRevertHunks={(ids, label) => session.onRevertHunks(selectedPath, selectedChanges, ids, label)}
+          onRefine={session?.onRefineFile}
+          busy={session?.busy}
+        />
       </section>
+
+      {session && <ProjectHistory history={session.history} onUndo={session.onUndo} busy={session.busy} />}
 
       <div className="grid gap-6 md:grid-cols-2">
         {/* Pages */}

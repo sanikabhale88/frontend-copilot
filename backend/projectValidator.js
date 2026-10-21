@@ -17,9 +17,10 @@ const allowImport = (source) => PACKAGES.has(source) || isRelative(source);
 // `files` is the whole project ({ path: code }), to resolve relative imports.
 // `requireComponent: false` skips the default-exported-component check (helper or
 // data files the model added on its own).
-// Returns { code, checks, errors } like validateComponent.
-function validateProjectFile(path, code, files, { playbook = null, requireComponent = true } = {}) {
-  const validation = validateComponent(code, { playbook, allowImport });
+// `baseline` lists playbook rules this file already broke before an update
+// (reported, not repaired). Returns { code, checks, errors } like validateComponent.
+function validateProjectFile(path, code, files, { playbook = null, requireComponent = true, baseline = [] } = {}) {
+  const validation = validateComponent(code, { playbook, allowImport, baseline });
   const checks = validation.checks.filter((check) => requireComponent || check.id !== "export");
 
   if (validation.ast) {

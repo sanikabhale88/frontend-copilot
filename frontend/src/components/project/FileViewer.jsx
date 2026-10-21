@@ -1,5 +1,25 @@
-export default function FileViewer({ path, code, showToast }) {
+import { useState } from "react";
+import ChangesView from "../ChangesView";
+
+// Shows one project file. For generated projects (onRefine set) it can also refine
+// the file and, after an update, show its Changes with per-change Revert.
+export default function FileViewer({
+  path,
+  code,
+  showToast,
+  changes = null,
+  changeLabel,
+  review,
+  onReviewChanges,
+  onRevertHunks,
+  onRefine,
+  busy = false,
+}) {
+  const [view, setView] = useState("code"); // "code" | "changes"
+  const [instruction, setInstruction] = useState("");
+
   const hasFile = Boolean(path) && code !== undefined;
+  const activeView = changes ? view : "code";
 
   const handleCopy = async () => {
     try {
@@ -22,6 +42,13 @@ export default function FileViewer({ path, code, showToast }) {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     showToast(`${fileName} downloaded`, "success");
+  };
+
+  const handleRefine = (event) => {
+    event.preventDefault();
+    if (!instruction.trim() || busy) return;
+    onRefine(path, instruction.trim());
+    setInstruction("");
   };
 
   return (
@@ -55,15 +82,73 @@ export default function FileViewer({ path, code, showToast }) {
         )}
       </div>
 
+      {hasFile && changes && (
+        <div className="flex gap-1 px-5 pt-3 bg-[#0B1220] shrink-0" role="tablist" aria-label="File view">
+          {[
+            { value: "code", label: "Code" },
+            {
+              value: "changes",
+              label: (
+                <>
+                  Changes <span className="text-emerald-400">+{changes.stats.added}</span>{" "}
+                  <span className="text-rose-400">−{changes.stats.removed}</span>
+                </>
+              ),
+            },
+          ].map((tab) => (
+            <button
+              key={tab.value}
+              role="tab"
+              aria-selected={activeView === tab.value}
+              onClick={() => setView(tab.value)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                activeView === tab.value ? "bg-slate-800 text-white" : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="flex-1 overflow-auto bg-[#0B1220] p-5">
-        {hasFile ? (
+        {!hasFile ? (
+          <p className="text-sm text-slate-500">Select a file to view its code.</p>
+        ) : activeView === "changes" ? (
+          <ChangesView
+            changes={changes}
+            changeLabel={changeLabel}
+            review={review}
+            onReviewChanges={onReviewChanges}
+            onRevertHunks={onRevertHunks}
+            busy={busy || review.status === "loading"}
+          />
+        ) : (
           <pre className="text-emerald-400 text-[13px] leading-relaxed font-mono whitespace-pre-wrap break-words">
             {code}
           </pre>
-        ) : (
-          <p className="text-sm text-slate-500">Select a file to view its code.</p>
         )}
       </div>
+
+      {hasFile && onRefine && (
+        <form onSubmit={handleRefine} className="flex gap-2 px-4 py-3 border-t border-slate-800 bg-slate-900 shrink-0">
+          <label htmlFor="refine-file" className="sr-only">Refine {path}</label>
+          <input
+            id="refine-file"
+            value={instruction}
+            onChange={(event) => setInstruction(event.target.value)}
+            placeholder={`Refine ${path.split("/").pop()}, e.g. "make the cards rounder"`}
+            className="flex-1 min-w-0 bg-slate-800 border border-slate-700 focus:border-violet-500 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none"
+          />
+          <button
+            type="submit"
+            disabled={busy || !instruction.trim()}
+            className="shrink-0 bg-violet-600 hover:bg-violet-500 disabled:bg-slate-700 disabled:text-slate-400 text-white px-4 py-2 rounded-lg text-sm font-semibold transition"
+          >
+            {busy ? "Working..." : "Refine"}
+          </button>
+        </form>
+      )}
     </div>
   );
 }
